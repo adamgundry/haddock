@@ -563,18 +563,18 @@ ppSideBySideConstr subdocs unicode qual (L _ con) = (decl, mbDoc, fieldPart)
 
 ppSideBySideField :: [(DocName, DocForDecl DocName)] -> Bool -> Qualification
                   -> ConDeclField DocName ->  SubDecl
-ppSideBySideField subdocs unicode qual (ConDeclField (L _ lbl) name ltype _) =
-  (ppBinder False (rdrNameOcc lbl) <+> dcolon unicode <+> ppLType unicode qual ltype,
+ppSideBySideField subdocs unicode qual (ConDeclField (L _ lbl) sel ltype _) =
+  (ppRecSelBinder False (rdrNameOcc lbl) sel <+> dcolon unicode <+> ppLType unicode qual ltype,
     mbDoc,
     [])
   where
     -- don't use cd_fld_doc for same reason we don't use con_doc above
-    mbDoc = lookup name subdocs >>= combineDocumentation . fst
+    mbDoc = lookup sel subdocs >>= combineDocumentation . fst
 
 
 ppShortField :: Bool -> Bool -> Qualification -> ConDeclField DocName -> Html
-ppShortField summary unicode qual (ConDeclField (L _ lbl) _ ltype _)
-  = ppBinder summary (rdrNameOcc lbl)
+ppShortField summary unicode qual (ConDeclField (L _ lbl) sel ltype _)
+  = ppRecSelBinder summary (rdrNameOcc lbl) sel
     <+> dcolon unicode <+> ppLType unicode qual ltype
 
 

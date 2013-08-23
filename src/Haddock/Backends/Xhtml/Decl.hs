@@ -593,6 +593,14 @@ ppDataHeader summary decl@(DataDecl { tcdDataDefn = HsDataDefn { dd_ND = nd
 ppDataHeader _ _ _ _ = error "ppDataHeader: illegal argument"
 
 
+-- Used for overloaded record field syntactic sugar
+ppConDeclFields :: Bool -> Qualification -> [ConDeclField DocName] -> Html
+ppConDeclFields u q fields = braces (hsep (punctuate comma (map ppr_fld fields)))
+  where
+    ppr_fld (ConDeclField { cd_fld_lbl = n, cd_fld_type = ty })
+        = ppRdrName (unLoc n) <+> dcolon u <+> ppLType u q ty
+
+
 --------------------------------------------------------------------------------
 -- * Types and contexts
 --------------------------------------------------------------------------------
@@ -683,7 +691,7 @@ ppr_mono_ty _         (HsPArrTy ty)       u q = pabrackets (ppr_mono_lty pREC_TO
 ppr_mono_ty _         (HsIParamTy n ty)   u q = brackets (ppIPName n <+> dcolon u <+> ppr_mono_lty pREC_TOP ty u q)
 ppr_mono_ty _         (HsSpliceTy {})     _ _ = error "ppr_mono_ty HsSpliceTy"
 ppr_mono_ty _         (HsQuasiQuoteTy {}) _ _ = error "ppr_mono_ty HsQuasiQuoteTy"
-ppr_mono_ty _         (HsRecTy {})        _ _ = error "ppr_mono_ty HsRecTy"
+ppr_mono_ty _         (HsRecTy flds)      u q = ppConDeclFields u q flds
 ppr_mono_ty _         (HsCoreTy {})       _ _ = error "ppr_mono_ty HsCoreTy"
 ppr_mono_ty _         (HsExplicitListTy _ tys) u q = quote $ brackets $ hsep $ punctuate comma $ map (ppLType u q) tys
 ppr_mono_ty _         (HsExplicitTupleTy _ tys) u q = quote $ parenList $ map (ppLType u q) tys

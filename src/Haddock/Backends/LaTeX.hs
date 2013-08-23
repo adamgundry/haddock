@@ -645,7 +645,7 @@ ppSideBySideConstr subdocs unicode leader (L _ con) =
 
 
 ppSideBySideField :: [(DocName, DocForDecl DocName)] -> Bool -> ConDeclField DocName ->  LaTeX
-ppSideBySideField subdocs unicode (ConDeclField (L _ name) ltype _) =
+ppSideBySideField subdocs unicode (ConDeclField _ name ltype _) =
   decltt (ppBinder (nameOccName . getName $ name)
     <+> dcolon unicode <+> ppLType unicode ltype) <-> rDoc mbDoc
   where

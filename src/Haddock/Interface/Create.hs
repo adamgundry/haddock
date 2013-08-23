@@ -315,9 +315,9 @@ subordinates (TyClD decl)
         cons = map unL $ (dd_cons (tcdDataDefn decl))
         constrs = [ (unL $ con_name c, maybeToList $ fmap unL $ con_doc c, M.empty)
                   | c <- cons ]
-        fields  = [ (unL n, maybeToList $ fmap unL doc, M.empty)
+        fields  = [ (cd_fld_sel fld, maybeToList $ fmap unL $ cd_fld_doc fld, M.empty)
                   | RecCon flds <- map con_details cons
-                  , ConDeclField n _ doc <- flds ]
+                  , fld <- flds ]
 subordinates _ = []
 
 
@@ -506,7 +506,7 @@ mkExportItems
     lookupExport (IEVar x)             = declWith x
     lookupExport (IEThingAbs t)        = declWith t
     lookupExport (IEThingAll t)        = declWith t
-    lookupExport (IEThingWith t _)     = declWith t
+    lookupExport (IEThingWith t _ _)   = declWith t
     lookupExport (IEModuleContents m)  =
       moduleExports thisMod m dflags warnings gre exportedNames decls modMap instIfaceMap maps
     lookupExport (IEGroup lev docStr)  = liftErrMsg $
@@ -789,11 +789,12 @@ extractRecSel _ _ _ _ [] = error "extractRecSel: selector not found"
 
 extractRecSel nm mdl t tvs (L _ con : rest) =
   case con_details con of
-    RecCon fields | (ConDeclField n ty _ : _) <- matching_fields fields ->
-      L (getLoc n) (TypeSig [noLoc nm] (noLoc (HsFunTy data_ty (getBangType ty))))
+    RecCon fields | (fld : _) <- matching_fields fields ->
+      L (getLoc (cd_fld_lbl fld)) (TypeSig [noLoc nm]
+                                      (noLoc (HsFunTy data_ty (getBangType (cd_fld_type fld)))))
     _ -> extractRecSel nm mdl t tvs rest
  where
-  matching_fields flds = [ f | f@(ConDeclField n _ _) <- flds, unLoc n == nm ]
+  matching_fields flds = [ fld | fld <- flds, cd_fld_sel fld == nm ]
   data_ty = foldl (\x y -> noLoc (HsAppTy x y)) (noLoc (HsTyVar t)) (map toTypeNoLoc tvs)
 
 

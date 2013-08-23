@@ -34,6 +34,7 @@ import           Text.XHtml hiding     ( name, title, p, quote )
 
 import GHC
 import Name
+import RdrName ( rdrNameOcc )
 
 
 ppDecl :: Bool -> LinksInfo -> LHsDecl DocName ->
@@ -562,8 +563,8 @@ ppSideBySideConstr subdocs unicode qual (L _ con) = (decl, mbDoc, fieldPart)
 
 ppSideBySideField :: [(DocName, DocForDecl DocName)] -> Bool -> Qualification
                   -> ConDeclField DocName ->  SubDecl
-ppSideBySideField subdocs unicode qual (ConDeclField (L _ name) ltype _) =
-  (ppBinder False (nameOccName . getName $ name) <+> dcolon unicode <+> ppLType unicode qual ltype,
+ppSideBySideField subdocs unicode qual (ConDeclField (L _ lbl) name ltype _) =
+  (ppBinder False (rdrNameOcc lbl) <+> dcolon unicode <+> ppLType unicode qual ltype,
     mbDoc,
     [])
   where
@@ -572,8 +573,8 @@ ppSideBySideField subdocs unicode qual (ConDeclField (L _ name) ltype _) =
 
 
 ppShortField :: Bool -> Bool -> Qualification -> ConDeclField DocName -> Html
-ppShortField summary unicode qual (ConDeclField (L _ name) ltype _)
-  = ppBinder summary (nameOccName . getName $ name)
+ppShortField summary unicode qual (ConDeclField (L _ lbl) _ ltype _)
+  = ppBinder summary (rdrNameOcc lbl)
     <+> dcolon unicode <+> ppLType unicode qual ltype
 
 

@@ -151,7 +151,7 @@ ppLaTeXModule _title odir iface = do
         verb $ vcat [
            text "module" <+> text mdl_str <+> lparen,
            text "    " <> fsep (punctuate (text ", ") $
-                               map exportListItem $
+                               map (exportListItem (ifaceFieldMap iface)) $
                                filter forSummary exports),
            text "  ) where"
          ],
@@ -176,19 +176,19 @@ string_txt (ZStr s1) s2 = zString s1 ++ s2
 string_txt (LStr s1 _) s2 = unpackLitString s1 ++ s2
 
 
-exportListItem :: ExportItem DocName -> LaTeX
-exportListItem (ExportDecl decl _doc subdocs _insts)
+exportListItem :: FieldMap -> ExportItem DocName -> LaTeX
+exportListItem flds (ExportDecl decl _doc subdocs _insts)
   = sep (punctuate comma . map ppDocBinder $ declNames decl) <>
      case subdocs of
        [] -> empty
-       _  -> parens (sep (punctuate comma (map (ppDocBinder . fst) subdocs)))
-exportListItem (ExportNoDecl y [])
+       _  -> parens (sep (punctuate comma (map (ppDocSubBinder flds . fst) subdocs)))
+exportListItem _ (ExportNoDecl y [])
   = ppDocBinder y
-exportListItem (ExportNoDecl y subs)
+exportListItem _ (ExportNoDecl y subs)
   = ppDocBinder y <> parens (sep (punctuate comma (map ppDocBinder subs)))
-exportListItem (ExportModule mdl)
+exportListItem _ (ExportModule mdl)
   = text "module" <+> text (moduleString mdl)
-exportListItem _
+exportListItem _ _
   = error "exportListItem"
 
 
@@ -961,6 +961,9 @@ ppLDocName (L _ d) = ppDocName d
 
 ppDocBinder :: DocName -> LaTeX
 ppDocBinder = ppBinder . nameOccName . getName
+
+ppDocSubBinder :: FieldMap -> DocName -> LaTeX
+ppDocSubBinder flds d = ppBinder $ lookupFieldMap (getName d) flds
 
 
 ppName :: Name -> LaTeX

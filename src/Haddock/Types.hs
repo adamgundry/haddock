@@ -33,6 +33,7 @@ import DynFlags (ExtensionFlag, Language)
 import OccName
 import Control.Applicative (Applicative(..))
 import Control.Monad (ap)
+import Name
 
 -----------------------------------------------------------------------------
 -- * Convenient synonyms
@@ -119,10 +120,18 @@ data Interface = Interface
 
     -- | Warnings for things defined in this module.
   , ifaceWarningMap :: !WarningMap
+
+    -- | Map from a selector name to its field label and parent tycon.
+  , ifaceFieldMap :: !FieldMap
   }
 
 type WarningMap = DocMap Name
+type FieldMap = Map Name (OccName, Name)
 
+lookupFieldMap :: Name -> FieldMap -> OccName
+lookupFieldMap n flds = case Map.lookup n flds of
+                          Just (occ, _) -> occ
+                          Nothing       -> nameOccName n
 
 -- | A subset of the fields of 'Interface' that we store in the interface
 -- files.

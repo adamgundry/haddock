@@ -116,6 +116,12 @@ createInterface tm flags modMap instIfaceMap = do
   let !aliases =
         mkAliasMap dflags $ tm_renamed_source tm
 
+  let !fieldMap = M.fromList [ (gre_name gr_elt, (par_lbl par, par_is par))
+                             | gr_elts <- occEnvElts gre
+                             , gr_elt <- gr_elts
+                             , isOverloadedRecFldGRE gr_elt
+                             , let par = gre_par gr_elt ]
+
   modWarn <- liftErrMsg $ moduleWarning dflags gre warnings
 
   return $! Interface {
@@ -139,6 +145,7 @@ createInterface tm flags modMap instIfaceMap = do
   , ifaceInstances       = instances
   , ifaceHaddockCoverage = coverage
   , ifaceWarningMap      = warningMap
+  , ifaceFieldMap        = fieldMap
   }
 
 mkAliasMap :: DynFlags -> Maybe RenamedSource -> M.Map Module ModuleName

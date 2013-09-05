@@ -452,7 +452,8 @@ renameDataFamInstD (DataFamInstDecl { dfid_tycon = tc, dfid_pats = pats_w_bndrs,
   = do { tc' <- renameL tc
        ; pats' <- mapM renameLType (hswb_cts pats_w_bndrs)
        ; defn' <- renameDataDefn defn
-       ; return (DataFamInstDecl { dfid_tycon = tc', dfid_pats = pats_w_bndrs { hswb_cts = pats' }
+       ; return (DataFamInstDecl { dfid_tycon = tc', dfid_rep_tycon = placeHolderRepTyCon
+                                 , dfid_pats = pats_w_bndrs { hswb_cts = pats' }
                                  , dfid_defn = defn', dfid_fvs = placeHolderNames }) }
 
 renameExportItem :: ExportItem Name -> RnM (ExportItem DocName)

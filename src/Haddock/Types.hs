@@ -161,6 +161,9 @@ data InstalledInterface = InstalledInterface
   , instOptions        :: [DocOption]
 
   , instSubMap         :: Map Name [Name]
+
+    -- | Map from a selector name to its field label and parent tycon.
+  , instFieldMap       :: FieldMap
   }
 
 
@@ -175,6 +178,7 @@ toInstalledIface interface = InstalledInterface
   , instVisibleExports = ifaceVisibleExports interface
   , instOptions        = ifaceOptions        interface
   , instSubMap         = ifaceSubMap         interface
+  , instFieldMap       = ifaceFieldMap       interface
   }
 
 

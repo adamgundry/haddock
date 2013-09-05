@@ -441,7 +441,7 @@ ppHtmlIndex odir doctitle _maybe_package themes
                  (concatMap getIfaceIndex ifaces)
 
     getIfaceIndex iface =
-      [ (getOccString name
+      [ (occNameString (lookupFieldMap name (instFieldMap iface))
          , Map.fromList [(name, [(mdl, name `Set.member` visible)])])
          | name <- instExports iface ]
       where

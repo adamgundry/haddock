@@ -240,7 +240,7 @@ synifyDataCon use_gadt_syntax dc = noLoc $
           )
           arg_tys (dataConStrictMarks dc)
   field_tys = zipWith (\field synTy -> ConDeclField
-                          { cd_fld_lbl = noLoc (mkRdrUnqual (flOccName field))
+                          { cd_fld_lbl = noLoc (mkVarUnqual (flLabel field))
                           , cd_fld_sel = flSelector field
                           , cd_fld_type = synTy
                           , cd_fld_doc = Nothing })

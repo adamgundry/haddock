@@ -963,7 +963,7 @@ ppDocBinder :: DocName -> LaTeX
 ppDocBinder = ppBinder . nameOccName . getName
 
 ppDocSubBinder :: FieldMap -> DocName -> LaTeX
-ppDocSubBinder flds d = ppBinder $ lookupFieldMap (getName d) flds
+ppDocSubBinder flds d = ppBinder $ mkVarOccFS $ lookupFieldMap (getName d) flds
 
 
 ppName :: Name -> LaTeX

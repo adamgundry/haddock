@@ -34,6 +34,7 @@ import OccName
 import Control.Applicative (Applicative(..))
 import Control.Monad (ap)
 import Name
+import FastString
 
 -----------------------------------------------------------------------------
 -- * Convenient synonyms
@@ -126,12 +127,12 @@ data Interface = Interface
   }
 
 type WarningMap = DocMap Name
-type FieldMap = Map Name (OccName, Name)
+type FieldMap = Map Name (FastString, Name)
 
-lookupFieldMap :: Name -> FieldMap -> OccName
+lookupFieldMap :: Name -> FieldMap -> FastString
 lookupFieldMap n flds = case Map.lookup n flds of
-                          Just (occ, _) -> occ
-                          Nothing       -> nameOccName n
+                          Just (lbl, _) -> lbl
+                          Nothing       -> occNameFS (nameOccName n)
 
 -- | A subset of the fields of 'Interface' that we store in the interface
 -- files.

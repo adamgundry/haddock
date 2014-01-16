@@ -116,7 +116,7 @@ createInterface tm flags modMap instIfaceMap = do
   let !aliases =
         mkAliasMap dflags $ tm_renamed_source tm
 
-  let !fieldMap = M.fromList [ (gre_name gr_elt, (par_lbl par, par_is par))
+  let !fieldMap = M.fromList [ (gre_name gr_elt, (fromJust $ par_lbl par, par_is par))
                              | gr_elts <- occEnvElts gre
                              , gr_elt <- gr_elts
                              , isOverloadedRecFldGRE gr_elt

@@ -30,6 +30,7 @@ import Haddock.Doc (combineDocumentation)
 import           Data.List             ( intersperse )
 import qualified Data.Map as Map
 import           Data.Maybe
+import           Data.Monoid           ( mempty )
 import           Text.XHtml hiding     ( name, title, p, quote )
 
 import GHC
@@ -41,21 +42,68 @@ ppDecl :: Bool -> LinksInfo -> LHsDecl DocName ->
           DocForDecl DocName -> [DocInstance DocName] -> [(DocName, DocForDecl DocName)] ->
           Bool -> Qualification -> Html
 ppDecl summ links (L loc decl) (mbDoc, fnArgsDoc) instances subdocs unicode qual = case decl of
-  TyClD (FamDecl d)              -> ppTyFam summ False links loc mbDoc d unicode qual
-  TyClD d@(DataDecl {})          -> ppDataDecl summ links instances subdocs loc mbDoc d unicode qual
-  TyClD d@(SynDecl {})           -> ppTySyn summ links loc (mbDoc, fnArgsDoc) d unicode qual
-  TyClD d@(ClassDecl {})         -> ppClassDecl summ links instances loc mbDoc subdocs d unicode qual
-  SigD (TypeSig lnames (L _ t))  -> ppFunSig summ links loc (mbDoc, fnArgsDoc) (map unLoc lnames) t unicode qual
+  TyClD (FamDecl d)         -> ppTyFam summ False links instances loc mbDoc d unicode qual
+  TyClD d@(DataDecl {})     -> ppDataDecl summ links instances subdocs loc mbDoc d unicode qual
+  TyClD d@(SynDecl {})      -> ppTySyn summ links loc (mbDoc, fnArgsDoc) d unicode qual
+  TyClD d@(ClassDecl {})    -> ppClassDecl summ links instances loc mbDoc subdocs d unicode qual
+  SigD (TypeSig lnames lty) -> ppLFunSig summ links loc (mbDoc, fnArgsDoc) lnames lty unicode qual
+  SigD (PatSynSig lname args ty prov req) ->
+      ppLPatSig summ links loc (mbDoc, fnArgsDoc) lname args ty prov req unicode qual
   ForD d                         -> ppFor summ links loc (mbDoc, fnArgsDoc) d unicode qual
   InstD _                        -> noHtml
   _                              -> error "declaration not supported by ppDecl"
 
 
+ppLFunSig :: Bool -> LinksInfo -> SrcSpan -> DocForDecl DocName ->
+             [Located DocName] -> LHsType DocName -> Bool -> Qualification -> Html
+ppLFunSig summary links loc doc lnames lty unicode qual =
+  ppFunSig summary links loc doc (map unLoc lnames) (unLoc lty) unicode qual
+
 ppFunSig :: Bool -> LinksInfo -> SrcSpan -> DocForDecl DocName ->
             [DocName] -> HsType DocName -> Bool -> Qualification -> Html
 ppFunSig summary links loc doc docnames typ unicode qual =
+  ppSigLike summary links loc mempty doc docnames (typ, pp_typ) unicode qual
+  where
+    pp_typ = ppType unicode qual typ
+
+ppLPatSig :: Bool -> LinksInfo -> SrcSpan -> DocForDecl DocName ->
+             Located DocName ->
+             HsPatSynDetails (LHsType DocName) -> LHsType DocName ->
+             LHsContext DocName -> LHsContext DocName ->
+             Bool -> Qualification -> Html
+ppLPatSig summary links loc doc lname args typ prov req unicode qual =
+    ppPatSig summary links loc doc (unLoc lname) (fmap unLoc args) (unLoc typ) (unLoc prov) (unLoc req) unicode qual
+
+ppPatSig :: Bool -> LinksInfo -> SrcSpan -> DocForDecl DocName ->
+            DocName ->
+            HsPatSynDetails (HsType DocName) -> HsType DocName ->
+            HsContext DocName -> HsContext DocName ->
+            Bool -> Qualification -> Html
+ppPatSig summary links loc (doc, _argDocs) docname args typ prov req unicode qual
+  | summary = pref1
+  | otherwise = topDeclElem links loc [docname] pref1 +++ docSection qual doc
+  where
+    pref1 = hsep [ toHtml "pattern"
+                 , pp_cxt prov
+                 , pp_head
+                 , dcolon unicode
+                 , pp_cxt req
+                 , ppType unicode qual typ
+                 ]
+    pp_head = case args of
+        PrefixPatSyn typs -> hsep $ ppBinder summary occname : map pp_type typs
+        InfixPatSyn left right -> hsep [pp_type left, ppBinderInfix summary occname, pp_type right]
+
+    pp_cxt cxt = ppContext cxt unicode qual
+    pp_type = ppParendType unicode qual
+
+    occname = nameOccName . getName $ docname
+
+ppSigLike :: Bool -> LinksInfo -> SrcSpan -> Html -> DocForDecl DocName ->
+            [DocName] -> (HsType DocName, Html) -> Bool -> Qualification -> Html
+ppSigLike summary links loc leader doc docnames (typ, pp_typ) unicode qual =
   ppTypeOrFunSig summary links loc docnames typ doc
-    ( ppTypeSig summary occnames typ unicode qual
+    ( leader <+> ppTypeSig summary occnames pp_typ unicode
     , concatHtml . punctuate comma $ map (ppBinder False) occnames
     , dcolon unicode
     )
@@ -128,17 +176,15 @@ ppTySyn summary links loc doc (SynDecl { tcdLName = L _ name, tcdTyVars = ltyvar
 ppTySyn _ _ _ _ _ _ _ = error "declaration not supported by ppTySyn"
 
 
-ppTypeSig :: Bool -> [OccName] -> HsType DocName  -> Bool -> Qualification -> Html
-ppTypeSig summary nms ty unicode qual =
-  concatHtml htmlNames <+> dcolon unicode <+> ppType unicode qual ty
+ppTypeSig :: Bool -> [OccName] -> Html  -> Bool -> Html
+ppTypeSig summary nms pp_ty unicode =
+  concatHtml htmlNames <+> dcolon unicode <+> pp_ty
   where
     htmlNames = intersperse (stringToHtml ", ") $ map (ppBinder summary) nms
 
 
 ppTyName :: Name -> Html
-ppTyName name
-  | isNameSym name = parens (ppName name)
-  | otherwise = ppName name
+ppTyName = ppName Prefix
 
 
 --------------------------------------------------------------------------------
@@ -167,9 +213,9 @@ ppTyFamHeader summary associated d@(FamilyDecl { fdInfo = info
     Nothing   -> noHtml
   )
 
-ppTyFam :: Bool -> Bool -> LinksInfo -> SrcSpan -> Documentation DocName ->
+ppTyFam :: Bool -> Bool -> LinksInfo -> [DocInstance DocName] -> SrcSpan -> Documentation DocName ->
               FamilyDecl DocName -> Bool -> Qualification -> Html
-ppTyFam summary associated links loc doc decl unicode qual
+ppTyFam summary associated links instances loc doc decl unicode qual
 
   | summary   = ppTyFamHeader True associated decl unicode qual
   | otherwise = header_ +++ docSection qual doc +++ instancesBit
@@ -180,16 +226,19 @@ ppTyFam summary associated links loc doc decl unicode qual
     header_ = topDeclElem links loc [docname] (ppTyFamHeader summary associated decl unicode qual)
 
     instancesBit
-      | FamilyDecl { fdInfo = ClosedTypeFamily _eqns } <- decl
+      | FamilyDecl { fdInfo = ClosedTypeFamily eqns } <- decl
       , not summary
-      = noHtml -- TODO: print eqns
+      = subEquations qual $ map (ppTyFamEqn . unLoc) eqns
 
       | otherwise
       = ppInstances instances docname unicode qual
 
-    -- TODO: get the instances
-    instances = []
-
+    -- Individual equation of a closed type family
+    ppTyFamEqn TyFamInstEqn { tfie_tycon = n, tfie_rhs = rhs
+                            , tfie_pats = HsWB { hswb_cts = ts }}
+      = ( ppAppNameTypes (unLoc n) [] (map unLoc ts) unicode qual
+          <+> equals <+> ppType unicode qual (unLoc rhs)
+        , Nothing, [] )
 
 --------------------------------------------------------------------------------
 -- * Associated Types
@@ -199,7 +248,7 @@ ppTyFam summary associated links loc doc decl unicode qual
 ppAssocType :: Bool -> LinksInfo -> DocForDecl DocName -> LFamilyDecl DocName -> Bool
             -> Qualification -> Html
 ppAssocType summ links doc (L loc decl) unicode qual =
-   ppTyFam summ True links loc (fst doc) decl unicode qual
+   ppTyFam summ True links [] loc (fst doc) decl unicode qual
 
 
 --------------------------------------------------------------------------------
@@ -222,28 +271,31 @@ ppDataBinderWithVars summ decl =
 --------------------------------------------------------------------------------
 
 
--- | Print an application of a DocName and a list of HsTypes
-ppAppNameTypes :: DocName -> [HsType DocName] -> Bool -> Qualification -> Html
-ppAppNameTypes n ts unicode qual =
-    ppTypeApp n ts (ppDocName qual) (ppParendType unicode qual)
+-- | Print an application of a DocName and two lists of HsTypes (kinds, types)
+ppAppNameTypes :: DocName -> [HsType DocName] -> [HsType DocName] -> Bool -> Qualification -> Html
+ppAppNameTypes n ks ts unicode qual =
+    ppTypeApp n ks ts (ppDocName qual) (ppParendType unicode qual)
 
 
 -- | Print an application of a DocName and a list of Names
 ppAppDocNameNames :: Bool -> DocName -> [Name] -> Html
 ppAppDocNameNames summ n ns =
-  ppTypeApp n ns (ppBinder summ . nameOccName . getName) ppTyName
-
+    ppTypeApp n [] ns ppDN ppTyName
+  where
+    ppDN notation = ppBinderFixity notation summ . nameOccName . getName
+    ppBinderFixity Infix = ppBinderInfix
+    ppBinderFixity _ = ppBinder
 
 -- | General printing of type applications
-ppTypeApp :: DocName -> [a] -> (DocName -> Html) -> (a -> Html) -> Html
-ppTypeApp n (t1:t2:rest) ppDN ppT
+ppTypeApp :: DocName -> [a] -> [a] -> (Notation -> DocName -> Html) -> (a -> Html) -> Html
+ppTypeApp n [] (t1:t2:rest) ppDN ppT
   | operator, not . null $ rest = parens opApp <+> hsep (map ppT rest)
   | operator                    = opApp
   where
     operator = isNameSym . getName $ n
-    opApp = ppT t1 <+> ppDN n <+> ppT t2
+    opApp = ppT t1 <+> ppDN Infix n <+> ppT t2
 
-ppTypeApp n ts ppDN ppT = ppDN n <+> hsep (map ppT ts)
+ppTypeApp n ks ts ppDN ppT = ppDN Prefix n <+> hsep (map ppT $ ks ++ ts)
 
 
 -------------------------------------------------------------------------------
@@ -298,9 +350,8 @@ ppFds fds unicode qual =
   if null fds then noHtml else
         char '|' <+> hsep (punctuate comma (map (fundep . unLoc) fds))
   where
-        fundep (vars1,vars2) = hsep (map (ppDocName qual) vars1) <+> arrow unicode <+>
-                               hsep (map (ppDocName qual) vars2)
-
+        fundep (vars1,vars2) = ppVars vars1 <+> arrow unicode <+> ppVars vars2
+        ppVars = hsep . map (ppDocName qual Prefix)
 
 ppShortClassDecl :: Bool -> LinksInfo -> TyClDecl DocName -> SrcSpan
                  -> [(DocName, DocForDecl DocName)] -> Bool -> Qualification
@@ -376,10 +427,14 @@ ppInstances instances baseName unicode qual
     instName = getOccString $ getName baseName
     instDecl :: DocInstance DocName -> SubDecl
     instDecl (inst, maybeDoc) = (instHead inst, maybeDoc, [])
-    instHead ([],   n, ts) = ppAppNameTypes n ts unicode qual
-    instHead (ctxt, n, ts) = ppContextNoLocs ctxt unicode qual
-        <+> ppAppNameTypes n ts unicode qual
-
+    instHead (n, ks, ts, ClassInst cs) = ppContextNoLocs cs unicode qual
+        <+> ppAppNameTypes n ks ts unicode qual
+    instHead (n, ks, ts, TypeInst rhs) = keyword "type"
+        <+> ppAppNameTypes n ks ts unicode qual
+        <+> equals <+> ppType unicode qual rhs
+    instHead (n, ks, ts, DataInst dd) = keyword "data"
+        <+> ppAppNameTypes n ks ts unicode qual
+        <+> ppShortDataDecl False True dd unicode qual
 
 lookupAnySubdoc :: Eq id1 => id1 -> [(id1, DocForDecl id2)] -> DocForDecl id2
 lookupAnySubdoc n = fromMaybe noDocForDecl . lookup n
@@ -391,9 +446,8 @@ lookupAnySubdoc n = fromMaybe noDocForDecl . lookup n
 
 
 -- TODO: print contexts
-ppShortDataDecl :: Bool -> LinksInfo -> SrcSpan -> TyClDecl DocName -> Bool
-                -> Qualification -> Html
-ppShortDataDecl summary _links _loc dataDecl unicode qual
+ppShortDataDecl :: Bool -> Bool -> TyClDecl DocName -> Bool -> Qualification -> Html
+ppShortDataDecl summary dataInst dataDecl unicode qual
 
   | [] <- cons = dataHeader
 
@@ -408,7 +462,9 @@ ppShortDataDecl summary _links _loc dataDecl unicode qual
       +++ shortSubDecls (map doGADTConstr cons)
 
   where
-    dataHeader = ppDataHeader summary dataDecl unicode qual
+    dataHeader
+      | dataInst  = noHtml
+      | otherwise = ppDataHeader summary dataDecl unicode qual
     doConstr c con = toHtml [c] <+> ppShortConstr summary (unLoc con) unicode qual
     doGADTConstr con = ppShortConstr summary (unLoc con) unicode qual
 
@@ -422,7 +478,7 @@ ppDataDecl :: Bool -> LinksInfo -> [DocInstance DocName] ->
               Qualification -> Html
 ppDataDecl summary links instances subdocs loc doc dataDecl unicode qual
 
-  | summary   = ppShortDataDecl summary links loc dataDecl unicode qual
+  | summary   = ppShortDataDecl summary False dataDecl unicode qual
   | otherwise = header_ +++ docSection qual doc +++ constrBit +++ instancesBit
 
   where
@@ -466,7 +522,7 @@ ppShortConstrParts summary con unicode qual = case con_res con of
        char '}')
     InfixCon arg1 arg2 ->
       (header_ unicode qual +++ hsep [ppLParendType unicode qual arg1,
-            ppBinder summary occ, ppLParendType unicode qual arg2],
+            ppBinderInfix summary occ, ppLParendType unicode qual arg2],
        noHtml, noHtml)
 
   ResTyGADT resTy -> case con_details con of
@@ -509,7 +565,7 @@ ppConstrHdr forall_ tvs ctxt unicode qual
         <+> darrow unicode +++ toHtml " ")
   where
     ppForall = case forall_ of
-      Explicit -> forallSymbol unicode <+> hsep (map ppName tvs) <+> toHtml ". "
+      Explicit -> forallSymbol unicode <+> hsep (map (ppName Prefix) tvs) <+> toHtml ". "
       Implicit -> noHtml
 
 
@@ -527,7 +583,7 @@ ppSideBySideConstr subdocs unicode qual (L _ con) = (decl, mbDoc, fieldPart)
 
         InfixCon arg1 arg2 ->
           hsep [header_ unicode qual +++ ppLParendType unicode qual arg1,
-            ppBinder False occ,
+            ppBinderInfix False occ,
             ppLParendType unicode qual arg2]
 
       ResTyGADT resTy -> case con_details con of
@@ -681,7 +737,7 @@ ppr_mono_ty ctxt_prec (HsForAllTy expl tvs ctxt ty) unicode qual
     hsep [ppForAll expl tvs ctxt unicode qual, ppr_mono_lty pREC_TOP ty unicode qual]
 
 ppr_mono_ty _         (HsBangTy b ty)     u q = ppBang b +++ ppLParendType u q ty
-ppr_mono_ty _         (HsTyVar name)      _ q = ppDocName q name
+ppr_mono_ty _         (HsTyVar name)      _ q = ppDocName q Prefix name
 ppr_mono_ty ctxt_prec (HsFunTy ty1 ty2)   u q = ppr_fun_ty ctxt_prec ty1 ty2 u q
 ppr_mono_ty _         (HsTupleTy con tys) u q = tupleParens con (map (ppLType u q) tys)
 ppr_mono_ty _         (HsKindSig ty kind) u q =
@@ -709,8 +765,7 @@ ppr_mono_ty ctxt_prec (HsOpTy ty1 (_, op) ty2) unicode qual
   = maybeParen ctxt_prec pREC_FUN $
     ppr_mono_lty pREC_OP ty1 unicode qual <+> ppr_op <+> ppr_mono_lty pREC_OP ty2 unicode qual
   where
-    ppr_op = if not (isSymOcc occ) then quote (ppLDocName qual op) else ppLDocName qual op
-    occ = nameOccName . getName . unLoc $ op
+    ppr_op = ppLDocName qual Infix op
 
 ppr_mono_ty ctxt_prec (HsParTy ty) unicode qual
 --  = parens (ppr_mono_lty pREC_TOP ty)

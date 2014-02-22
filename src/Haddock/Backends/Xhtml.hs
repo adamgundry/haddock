@@ -292,7 +292,7 @@ mkNodeList qual ss p ts = case ts of
 
 mkNode :: Qualification -> [String] -> String -> ModuleTree -> Html
 mkNode qual ss p (Node s leaf pkg short ts) =
-  htmlModule +++ shortDescr +++ htmlPkg +++ subtree
+  htmlModule <+> shortDescr +++ htmlPkg +++ subtree
   where
     modAttrs = case (ts, leaf) of
       (_:_, False) -> collapseControl p True "module"
@@ -588,25 +588,25 @@ processForMiniSynopsis mdl unicode qual (ExportDecl (L _loc decl0) _doc _ _insts
         (ClassDecl {}) -> [keyword "class" <+> b]
         _ -> []
     SigD (TypeSig lnames (L _ _)) ->
-      map (ppNameMini mdl . nameOccName . getName . unLoc) lnames
+      map (ppNameMini Prefix mdl . nameOccName . getName . unLoc) lnames
     _ -> []
 processForMiniSynopsis _ _ qual (ExportGroup lvl _id txt) =
   [groupTag lvl << docToHtml qual txt]
 processForMiniSynopsis _ _ _ _ = []
 
 
-ppNameMini :: Module -> OccName -> Html
-ppNameMini mdl nm =
+ppNameMini :: Notation -> Module -> OccName -> Html
+ppNameMini notation mdl nm =
     anchor ! [ href (moduleNameUrl mdl nm)
              , target mainFrameName ]
-      << ppBinder' nm
+      << ppBinder' notation nm
 
 
 ppTyClBinderWithVarsMini :: Module -> TyClDecl DocName -> Html
 ppTyClBinderWithVarsMini mdl decl =
   let n = tcdName decl
       ns = tyvarNames $ tcdTyVars decl -- it's safe to use tcdTyVars, see code above
-  in ppTypeApp n ns (ppNameMini mdl . nameOccName . getName) ppTyName
+  in ppTypeApp n [] ns (\is_infix -> ppNameMini is_infix mdl . nameOccName . getName) ppTyName
 
 
 ppModuleContents :: Qualification -> [ExportItem DocName] -> Html
@@ -649,15 +649,16 @@ numberSectionHeadings = go 1
 
 processExport :: Bool -> LinksInfo -> Bool -> Qualification
               -> ExportItem DocName -> Maybe Html
+processExport _ _ _ _ (ExportDecl (L _ (InstD _)) _ _ _) = Nothing -- Hide empty instances
 processExport summary _ _ qual (ExportGroup lev id0 doc)
   = nothingIf summary $ groupHeading lev id0 << docToHtml qual doc
 processExport summary links unicode qual (ExportDecl decl doc subdocs insts)
   = processDecl summary $ ppDecl summary links decl doc insts subdocs unicode qual
 processExport summary _ _ qual (ExportNoDecl y [])
-  = processDeclOneLiner summary $ ppDocName qual y
+  = processDeclOneLiner summary $ ppDocName qual Prefix y
 processExport summary _ _ qual (ExportNoDecl y subs)
   = processDeclOneLiner summary $
-      ppDocName qual y +++ parenList (map (ppDocName qual) subs)
+      ppDocName qual Prefix y +++ parenList (map (ppDocName qual Prefix) subs)
 processExport summary _ _ qual (ExportDoc doc)
   = nothingIf summary $ docSection_ qual doc
 processExport summary _ _ _ (ExportModule mdl)

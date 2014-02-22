@@ -258,11 +258,15 @@ renameLContext (L loc context) = do
 
 
 renameInstHead :: InstHead Name -> RnM (InstHead DocName)
-renameInstHead (preds, className, types) = do
-  preds' <- mapM renameType preds
+renameInstHead (className, k, types, rest) = do
   className' <- rename className
+  k' <- mapM renameType k
   types' <- mapM renameType types
-  return (preds', className', types')
+  rest' <- case rest of
+    ClassInst cs -> ClassInst <$> mapM renameType cs
+    TypeInst  ts -> TypeInst  <$> renameType ts
+    DataInst  dd -> DataInst  <$> renameTyClD dd
+  return (className', k', types', rest')
 
 
 renameLDecl :: LHsDecl Name -> RnM (LHsDecl DocName)
@@ -398,6 +402,15 @@ renameSig sig = case sig of
     lnames' <- mapM renameL lnames
     ltype' <- renameLType ltype
     return (TypeSig lnames' ltype')
+  PatSynSig lname args ltype lreq lprov -> do
+    lname' <- renameL lname
+    args' <- case args of
+        PrefixPatSyn largs -> PrefixPatSyn <$> mapM renameLType largs
+        InfixPatSyn lleft lright -> InfixPatSyn <$> renameLType lleft <*> renameLType lright
+    ltype' <- renameLType ltype
+    lreq' <- renameLContext lreq
+    lprov' <- renameLContext lprov
+    return $ PatSynSig lname' args' ltype' lreq' lprov'
   -- we have filtered out all other kinds of signatures in Interface.Create
   _ -> error "expected TypeSig"
 

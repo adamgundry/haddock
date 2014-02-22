@@ -249,6 +249,7 @@ declNames :: LHsDecl DocName -> [DocName]
 declNames (L _ decl) = case decl of
   TyClD d  -> [tcdName d]
   SigD (TypeSig lnames _) -> map unLoc lnames
+  SigD (PatSynSig lname _ _ _ _) -> [unLoc lname]
   ForD (ForeignImport (L _ n) _ _ _) -> [n]
   ForD (ForeignExport (L _ n) _ _ _) -> [n]
   _ -> error "declaration not supported by declNames"
@@ -283,7 +284,7 @@ ppDecl :: LHsDecl DocName
 ppDecl (L loc decl) (doc, fnArgsDoc) instances subdocs = case decl of
   TyClD d@(FamDecl {})          -> ppTyFam False loc doc d unicode
   TyClD d@(DataDecl {})
-                                -> ppDataDecl instances subdocs loc doc d unicode
+                                -> ppDataDecl instances subdocs loc (Just doc) d unicode
   TyClD d@(SynDecl {})          -> ppTySyn loc (doc, fnArgsDoc) d unicode
 -- Family instances happen via FamInst now
 --  TyClD d@(TySynonym {})
@@ -291,6 +292,8 @@ ppDecl (L loc decl) (doc, fnArgsDoc) instances subdocs = case decl of
 -- Family instances happen via FamInst now
   TyClD d@(ClassDecl {})         -> ppClassDecl instances loc doc subdocs d unicode
   SigD (TypeSig lnames (L _ t))  -> ppFunSig loc (doc, fnArgsDoc) (map unLoc lnames) t unicode
+  SigD (PatSynSig lname args ty prov req) ->
+      ppLPatSig loc (doc, fnArgsDoc) lname args ty prov req unicode
   ForD d                         -> ppFor loc (doc, fnArgsDoc) d unicode
   InstD _                        -> empty
   _                              -> error "declaration not supported by ppDecl"
@@ -345,6 +348,33 @@ ppFunSig loc doc docnames typ unicode =
  where
    names = map getName docnames
 
+ppLPatSig :: SrcSpan -> DocForDecl DocName -> Located DocName
+          -> HsPatSynDetails (LHsType DocName) -> LHsType DocName
+          -> LHsContext DocName -> LHsContext DocName
+          -> Bool -> LaTeX
+ppLPatSig loc doc docname args typ prov req unicode =
+    ppPatSig loc doc (unLoc docname) (fmap unLoc args) (unLoc typ) (unLoc prov) (unLoc req) unicode
+
+ppPatSig :: SrcSpan -> DocForDecl DocName -> DocName
+          -> HsPatSynDetails (HsType DocName) -> HsType DocName
+          -> HsContext DocName -> HsContext DocName
+          -> Bool -> LaTeX
+ppPatSig _loc (doc, _argDocs) docname args typ prov req unicode = declWithDoc pref1 (documentationToLaTeX doc)
+  where
+    pref1 = hsep [ keyword "pattern"
+                 , pp_ctx prov
+                 , pp_head
+                 , dcolon unicode
+                 , pp_ctx req
+                 , ppType unicode typ
+                 ]
+
+    pp_head = case args of
+        PrefixPatSyn typs -> hsep $ ppDocBinder docname : map pp_type typs
+        InfixPatSyn left right -> hsep [pp_type left, ppDocBinderInfix docname, pp_type right]
+
+    pp_type = ppParendType unicode
+    pp_ctx ctx = ppContext ctx unicode
 
 ppTypeOrFunSig :: SrcSpan -> [DocName] -> HsType DocName
                -> DocForDecl DocName -> (LaTeX, LaTeX, LaTeX)
@@ -530,9 +560,11 @@ ppInstDecl unicode instHead = keyword "instance" <+> ppInstHead unicode instHead
 
 
 ppInstHead :: Bool -> InstHead DocName -> LaTeX
-ppInstHead unicode ([],   n, ts) = ppAppNameTypes n ts unicode
-ppInstHead unicode (ctxt, n, ts) = ppContextNoLocs ctxt unicode <+> ppAppNameTypes n ts unicode
-
+ppInstHead unicode (n, ks, ts, ClassInst ctx) = ppContextNoLocs ctx unicode <+> ppAppNameTypes n ks ts unicode
+ppInstHead unicode (n, ks, ts, TypeInst rhs) = keyword "type"
+  <+> ppAppNameTypes n ks ts unicode <+> equals <+> ppType unicode rhs
+ppInstHead _unicode (_n, _ks, _ts, DataInst _dd) =
+  error "data instances not supported by --latex yet"
 
 lookupAnySubdoc :: (Eq name1) =>
                    name1 -> [(name1, DocForDecl name2)] -> DocForDecl name2
@@ -547,8 +579,8 @@ lookupAnySubdoc n subdocs = case lookup n subdocs of
 
 
 ppDataDecl :: [DocInstance DocName] ->
-              [(DocName, DocForDecl DocName)] ->
-              SrcSpan -> Documentation DocName -> TyClDecl DocName -> Bool ->
+              [(DocName, DocForDecl DocName)] -> SrcSpan ->
+              Maybe (Documentation DocName) -> TyClDecl DocName -> Bool ->
               LaTeX
 ppDataDecl instances subdocs _loc doc dataDecl unicode
 
@@ -560,7 +592,7 @@ ppDataDecl instances subdocs _loc doc dataDecl unicode
     cons      = dd_cons (tcdDataDefn dataDecl)
     resTy     = (con_res . unLoc . head) cons
 
-    body = catMaybes [constrBit, documentationToLaTeX doc]
+    body = catMaybes [constrBit, doc >>= documentationToLaTeX]
 
     (whereBit, leaders)
       | null cons = (empty,[])
@@ -726,27 +758,27 @@ ppConDeclFields u fields = braces (hsep (punctuate comma (map ppr_fld fields)))
 --------------------------------------------------------------------------------
 
 
--- | Print an application of a DocName and a list of HsTypes
-ppAppNameTypes :: DocName -> [HsType DocName] -> Bool -> LaTeX
-ppAppNameTypes n ts unicode = ppTypeApp n ts ppDocName (ppParendType unicode)
+-- | Print an application of a DocName and two lists of HsTypes (kinds, types)
+ppAppNameTypes :: DocName -> [HsType DocName] -> [HsType DocName] -> Bool -> LaTeX
+ppAppNameTypes n ks ts unicode = ppTypeApp n ks ts ppDocName (ppParendType unicode)
 
 
 -- | Print an application of a DocName and a list of Names
 ppAppDocNameNames :: Bool -> DocName -> [Name] -> LaTeX
 ppAppDocNameNames _summ n ns =
-  ppTypeApp n ns (ppBinder . nameOccName . getName) ppSymName
+  ppTypeApp n [] ns (ppBinder . nameOccName . getName) ppSymName
 
 
 -- | General printing of type applications
-ppTypeApp :: DocName -> [a] -> (DocName -> LaTeX) -> (a -> LaTeX) -> LaTeX
-ppTypeApp n (t1:t2:rest) ppDN ppT
+ppTypeApp :: DocName -> [a] -> [a] -> (DocName -> LaTeX) -> (a -> LaTeX) -> LaTeX
+ppTypeApp n [] (t1:t2:rest) ppDN ppT
   | operator, not . null $ rest = parens opApp <+> hsep (map ppT rest)
   | operator                    = opApp
   where
     operator = isNameSym . getName $ n
     opApp = ppT t1 <+> ppDN n <+> ppT t2
 
-ppTypeApp n ts ppDN ppT = ppDN n <+> hsep (map ppT ts)
+ppTypeApp n ks ts ppDN ppT = ppDN n <+> hsep (map ppT $ ks ++ ts)
 
 
 -------------------------------------------------------------------------------
@@ -923,9 +955,16 @@ ppr_fun_ty ctxt_prec ty1 ty2 unicode
 
 ppBinder :: OccName -> LaTeX
 ppBinder n
-  | isVarSym n = parens $ ppOccName n
-  | otherwise  = ppOccName n
+  | isInfixName n = parens $ ppOccName n
+  | otherwise     = ppOccName n
 
+ppBinderInfix :: OccName -> LaTeX
+ppBinderInfix n
+  | isInfixName n = ppOccName n
+  | otherwise     = quotes $ ppOccName n
+
+isInfixName :: OccName -> Bool
+isInfixName n = isVarSym n || isConSym n
 
 ppSymName :: Name -> LaTeX
 ppSymName name
@@ -965,6 +1004,8 @@ ppDocBinder = ppBinder . nameOccName . getName
 ppDocSubBinder :: FieldMap -> DocName -> LaTeX
 ppDocSubBinder flds d = ppBinder $ mkVarOccFS $ lookupFieldMap (getName d) flds
 
+ppDocBinderInfix :: DocName -> LaTeX
+ppDocBinderInfix = ppBinderInfix . nameOccName . getName
 
 ppName :: Name -> LaTeX
 ppName = ppOccName . nameOccName

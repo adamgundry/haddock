@@ -136,8 +136,12 @@ rename dflags env = rn
       DocString str -> DocString str
       DocHeader (Header l t) -> DocHeader $ Header l (rn t)
 
-    greIdentifier gre | isOverloadedRecFldGRE gre = monospaced (par_lbl (gre_par gre))
-                      | otherwise                 = DocIdentifier (gre_name gre)
+    -- Render fields compiled with -XOverloadedRecordFields in
+    -- monospace, because the name is an internal representation
+    -- rather than the field label.
+    greIdentifier gre = case gre_par gre of
+        FldParent { par_lbl = Just lbl } -> monospaced lbl
+        _                                -> DocIdentifier (gre_name gre)
 
     outOfScope :: RdrName -> Doc a
     outOfScope x =

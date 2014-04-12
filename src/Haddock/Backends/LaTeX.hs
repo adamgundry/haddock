@@ -177,7 +177,7 @@ string_txt (LStr s1 _) s2 = unpackLitString s1 ++ s2
 
 
 exportListItem :: FieldMap -> ExportItem DocName -> LaTeX
-exportListItem flds (ExportDecl decl _doc subdocs _insts)
+exportListItem flds ExportDecl { expItemDecl = decl, expItemSubDocs = subdocs }
   = sep (punctuate comma . map ppDocBinder $ declNames decl) <>
      case subdocs of
        [] -> empty
@@ -211,8 +211,8 @@ processExports (e : es) =
 
 
 isSimpleSig :: ExportItem DocName -> Maybe ([DocName], HsType DocName)
-isSimpleSig (ExportDecl (L _ (SigD (TypeSig lnames (L _ t))))
-                        (Documentation Nothing Nothing, argDocs) _ _)
+isSimpleSig ExportDecl { expItemDecl = L _ (SigD (TypeSig lnames (L _ t)))
+                       , expItemMbDoc = (Documentation Nothing Nothing, argDocs) }
   | Map.null argDocs = Just (map unLoc lnames, t)
 isSimpleSig _ = Nothing
 
@@ -225,8 +225,8 @@ isExportModule _ = Nothing
 processExport :: ExportItem DocName -> LaTeX
 processExport (ExportGroup lev _id0 doc)
   = ppDocGroup lev (docToLaTeX doc)
-processExport (ExportDecl decl doc subdocs insts)
-  = ppDecl decl doc insts subdocs
+processExport (ExportDecl decl doc subdocs insts fixities _splice)
+  = ppDecl decl doc insts subdocs fixities
 processExport (ExportNoDecl y [])
   = ppDocName y
 processExport (ExportNoDecl y subs)
@@ -279,9 +279,10 @@ ppDecl :: LHsDecl DocName
        -> DocForDecl DocName
        -> [DocInstance DocName]
        -> [(DocName, DocForDecl DocName)]
+       -> [(DocName, Fixity)]
        -> LaTeX
 
-ppDecl (L loc decl) (doc, fnArgsDoc) instances subdocs = case decl of
+ppDecl (L loc decl) (doc, fnArgsDoc) instances subdocs _fixities = case decl of
   TyClD d@(FamDecl {})          -> ppTyFam False loc doc d unicode
   TyClD d@(DataDecl {})
                                 -> ppDataDecl instances subdocs loc (Just doc) d unicode
@@ -562,7 +563,8 @@ ppInstDecl unicode instHead = keyword "instance" <+> ppInstHead unicode instHead
 ppInstHead :: Bool -> InstHead DocName -> LaTeX
 ppInstHead unicode (n, ks, ts, ClassInst ctx) = ppContextNoLocs ctx unicode <+> ppAppNameTypes n ks ts unicode
 ppInstHead unicode (n, ks, ts, TypeInst rhs) = keyword "type"
-  <+> ppAppNameTypes n ks ts unicode <+> equals <+> ppType unicode rhs
+  <+> ppAppNameTypes n ks ts unicode
+  <+> maybe empty (\t -> equals <+> ppType unicode t) rhs
 ppInstHead _unicode (_n, _ks, _ts, DataInst _dd) =
   error "data instances not supported by --latex yet"
 

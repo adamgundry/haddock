@@ -2,6 +2,7 @@
 {-# LANGUAGE StandaloneDeriving
              , FlexibleInstances, UndecidableInstances
              , IncoherentInstances #-}
+{-# LANGUAGE LambdaCase #-}
 -- |
 -- Module      :  Haddock.Parser
 -- Copyright   :  (c) Mateusz Kowalczyk 2013,
@@ -21,7 +22,7 @@ import           Control.Applicative
 import           Data.Attoparsec.ByteString.Char8 hiding (parse, take, endOfLine)
 import qualified Data.ByteString.Char8 as BS
 import           Data.Char (chr, isAsciiUpper)
-import           Data.List (stripPrefix, intercalate)
+import           Data.List (stripPrefix, intercalate, unfoldr)
 import           Data.Maybe (fromMaybe)
 import           Data.Monoid
 import           DynFlags
@@ -59,7 +60,8 @@ parseParas d = parse (p <* skipSpace) . encodeUtf8 . (++ "\n")
     p :: Parser (Doc RdrName)
     p = mconcat <$> paragraph d `sepBy` many (skipHorizontalSpace *> "\n")
 
--- | Parse a text paragraph.
+-- | Parse a text paragraph. Actually just a wrapper over 'parseStringBS' which
+-- drops leading whitespace and encodes the string to UTF8 first.
 parseString :: DynFlags -> String -> Doc RdrName
 parseString d = parseStringBS d . encodeUtf8 . dropWhile isSpace
 
@@ -302,9 +304,16 @@ takeNonEmptyLine = do
     (++ "\n") . decodeUtf8 <$> (takeWhile1 (/= '\n') >>= nonSpace) <* "\n"
 
 birdtracks :: Parser (Doc a)
-birdtracks = DocCodeBlock . DocString . intercalate "\n" <$> many1 line
+birdtracks = DocCodeBlock . DocString . intercalate "\n" . stripSpace <$> many1 line
   where
     line = skipHorizontalSpace *> ">" *> takeLine
+
+stripSpace :: [String] -> [String]
+stripSpace = fromMaybe <*> mapM strip'
+  where
+    strip' (' ':xs') = Just xs'
+    strip' "" = Just ""
+    strip' _  = Nothing
 
 -- | Parses examples. Examples are a paragraph level entitity (separated by an empty line).
 -- Consecutive examples are accepted.
@@ -359,8 +368,31 @@ property = DocProperty . strip . decodeUtf8 <$> ("prop>" *> takeWhile1 (/= '\n')
 -- for markup.
 codeblock :: DynFlags -> Parser (Doc RdrName)
 codeblock d =
-  DocCodeBlock . parseStringBS d <$> ("@" *> skipHorizontalSpace *> "\n" *> block' <* "@")
+  DocCodeBlock . parseStringBS d . dropSpaces
+  <$> ("@" *> skipHorizontalSpace *> "\n" *> block' <* "@")
   where
+    dropSpaces xs =
+      let rs = decodeUtf8 xs
+      in case splitByNl rs of
+        [] -> xs
+        ys -> case last ys of
+          ' ':_ -> case mapM dropSpace ys of
+            Nothing -> xs
+            Just zs -> encodeUtf8 $ intercalate "\n" zs
+          _ -> xs
+
+    -- This is necessary because ‘lines’ swallows up a trailing newline
+    -- and we lose information about whether the last line belongs to @ or to
+    -- text which we need to decide whether we actually want to be dropping
+    -- anything at all.
+    splitByNl = unfoldr (\case '\n':s -> Just (span (/= '\n') s)
+                               _ -> Nothing)
+                . ('\n' :)
+
+    dropSpace "" = Just ""
+    dropSpace (' ':xs) = Just xs
+    dropSpace _ = Nothing
+
     block' = scan False p
       where
         p isNewline c
@@ -387,13 +419,21 @@ autoUrl = mkLink <$> url
 -- characters and does no actual validation itself.
 parseValid :: Parser String
 parseValid = do
-  vs <- many' $ satisfy (`elem` "_.!#$%&*+/<=>?@\\|-~:") <|> digit <|> letter_ascii
+  vs' <- many' $ utf8String "⋆" <|> return <$> idChar
+  let vs = concat vs'
   c <- peekChar
   case c of
     Just '`' -> return vs
     Just '\'' -> (\x -> vs ++ "'" ++ x) <$> ("'" *> parseValid)
                  <|> return vs
     _ -> fail "outofvalid"
+  where
+    idChar = satisfy (`elem` "_.!#$%&*+/<=>?@\\|-~:^")
+             <|> digit <|> letter_ascii
+
+-- | Parses UTF8 strings from ByteString streams.
+utf8String :: String -> Parser String
+utf8String x = decodeUtf8 <$> string (encodeUtf8 x)
 
 -- | Parses identifiers with help of 'parseValid'. Asks GHC for 'RdrName' from the
 -- string it deems valid.

@@ -1,12 +1,12 @@
 name:                 haddock
-version:              2.14.0
+version:              2.15.0
 synopsis:             A documentation-generation tool for Haskell libraries
 description:          Haddock is a documentation-generation tool for Haskell
                       libraries
 license:              BSD3
 license-file:         LICENSE
 author:               Simon Marlow, David Waern
-maintainer:           Simon Hengel <sol@typeful.net>
+maintainer:           Simon Hengel <sol@typeful.net>, Mateusz Kowalczyk <fuuzetsu@fuuzetsu.co.uk>
 homepage:             http://www.haskell.org/haddock/
 bug-reports:          http://trac.haskell.org/haddock
 copyright:            (c) Simon Marlow, David Waern
@@ -31,9 +31,9 @@ extra-source-files:
   src/haddock.sh
   html-test/src/*.hs
   html-test/ref/*.html
-  latex-test/src/*.hs
-  latex-test/ref/*/*.tex
-  latex-test/ref/*/*.sty
+  latex-test/src/Simple/*.hs
+  latex-test/ref/Simple/*.tex
+  latex-test/ref/Simple/*.sty
 
 data-dir:   resources
 data-files: html/frames.html
@@ -83,7 +83,7 @@ executable haddock
       array,
       xhtml >= 3000.2 && < 3000.3,
       Cabal >= 1.10,
-      ghc >= 7.7 && < 7.10,
+      ghc == 7.9.*,
       bytestring
 
     other-modules:
@@ -143,7 +143,7 @@ library
     array,
     xhtml >= 3000.2 && < 3000.3,
     Cabal >= 1.10,
-    ghc >= 7.4 && < 7.10
+    ghc == 7.9.*
 
   if flag(in-ghc-tree)
     cpp-options: -DIN_GHC_TREE
@@ -228,7 +228,10 @@ test-suite spec
     , vendor/attoparsec-0.10.4.0
 
   other-modules:
+      Helper
       Haddock.ParserSpec
+      Haddock.Utf8Spec
+      Haddock.Parser.UtilSpec
 
   build-depends:
       base

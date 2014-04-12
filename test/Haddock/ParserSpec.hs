@@ -360,6 +360,27 @@ spec = before initStaticOpts $ do
           ]
         `shouldParseTo` DocCodeBlock "foo\nbar\nbaz"
 
+      it "strips one leading space from each line of the block" $ do
+        unlines [
+            "> foo"
+          , ">  bar"
+          , "> baz"
+          ] `shouldParseTo` DocCodeBlock "foo\n bar\nbaz"
+
+      it "ignores empty lines when stripping spaces" $ do
+        unlines [
+            "> foo"
+          , ">"
+          , "> bar"
+          ] `shouldParseTo` DocCodeBlock "foo\n\nbar"
+
+      context "when any non-empty line does not start with a space" $ do
+        it "does not strip any spaces" $ do
+          unlines [
+              ">foo"
+            , ">  bar"
+            ] `shouldParseTo` DocCodeBlock "foo\n  bar"
+
       it "ignores nested markup" $ do
         unlines [
             ">/foo/"
@@ -411,12 +432,34 @@ spec = before initStaticOpts $ do
           ] `shouldParseTo` DocCodeBlock "foo\n@\nbar\n"
 
       it "accepts horizontal space before the @" $ do
-        unlines [ " @"
-                , " foo"
+        unlines [ "     @"
+                , "foo"
                 , ""
-                , " bar"
+                , "bar"
+                , "@"
+                ] `shouldParseTo` DocCodeBlock "foo\n\nbar\n"
+
+      it "strips a leading space from a @ block if present" $ do
+        unlines [ " @"
+                , " hello"
+                , " world"
                 , " @"
-                ] `shouldParseTo` DocCodeBlock " foo\n\n bar\n "
+                ] `shouldParseTo` DocCodeBlock "hello\nworld\n"
+
+        unlines [ " @"
+                , " hello"
+                , ""
+                , " world"
+                , " @"
+                ] `shouldParseTo` DocCodeBlock "hello\n\nworld\n"
+
+      it "only drops whitespace if there's some before closing @" $ do
+        unlines [ "@"
+                , "    Formatting"
+                , "        matters."
+                , "@"
+                ]
+          `shouldParseTo` DocCodeBlock "    Formatting\n        matters.\n"
 
       it "accepts unicode" $ do
         "@foo 灼眼のシャナ bar@" `shouldParseTo` DocCodeBlock "foo 灼眼のシャナ bar"

@@ -180,4 +180,7 @@ dynFlags = defaultDynFlags settings
       , pc_REP_StgFunInfoExtraFwd_arity = 0
       , pc_OFFSET_StgFunInfoExtraRev_arity = 0
       , pc_REP_StgFunInfoExtraRev_arity = 0
+      , pc_OFFSET_StgArrWords_bytes = 0
+      , pc_SIZEOF_StgSmallMutArrPtrs_NoHdr = 0
+      , pc_OFFSET_StgSmallMutArrPtrs_ptrs = 0
       }

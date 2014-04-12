@@ -1,10 +1,12 @@
 {-# OPTIONS_GHC -Wwarn #-}
 {-# LANGUAGE CPP, ScopedTypeVariables #-}
+{-# LANGUAGE LambdaCase #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Haddock
 -- Copyright   :  (c) Simon Marlow 2003-2006,
---                    David Waern  2006-2010
+--                    David Waern  2006-2010,
+--                    Mateusz Kowalczyk 2014
 -- License     :  BSD-like
 --
 -- Maintainer  :  haddock@projects.haskell.org
@@ -242,9 +244,11 @@ render dflags flags qual ifaces installedIfaces srcMap = do
     pkgStr           = Just (packageIdString pkgId)
     (pkgName,pkgVer) = modulePackageInfo pkgMod
 
-    (srcBase, srcModule, srcEntity) = sourceUrls flags
+    (srcBase, srcModule, srcEntity, srcLEntity) = sourceUrls flags
     srcMap' = maybe srcMap (\path -> Map.insert pkgId path srcMap) srcEntity
-    sourceUrls' = (srcBase, srcModule, srcMap')
+    -- TODO: Get these from the interface files as with srcMap
+    srcLMap' = maybe Map.empty (\path -> Map.singleton pkgId path) srcLEntity
+    sourceUrls' = (srcBase, srcModule, srcMap', srcLMap')
 
   libDir   <- getHaddockLibDir flags
   prologue <- getPrologue dflags flags
@@ -293,9 +297,8 @@ readInterfaceFiles name_cache_accessor pairs = do
   catMaybes `liftM` mapM tryReadIface pairs
   where
     -- try to read an interface, warn if we can't
-    tryReadIface (paths, file) = do
-      eIface <- readInterfaceFile name_cache_accessor file
-      case eIface of
+    tryReadIface (paths, file) =
+      readInterfaceFile name_cache_accessor file >>= \case
         Left err -> liftIO $ do
           putStrLn ("Warning: Cannot read " ++ file ++ ":")
           putStrLn ("   " ++ err)
@@ -312,22 +315,20 @@ readInterfaceFiles name_cache_accessor pairs = do
 -- | Start a GHC session with the -haddock flag set. Also turn off
 -- compilation and linking. Then run the given 'Ghc' action.
 withGhc :: String -> [String] -> (DynFlags -> Ghc a) -> IO a
-withGhc libDir flags ghcActs = do
-  runGhc (Just libDir) $ do
-    dynflags  <- getSessionDynFlags
-    let dynflags' = gopt_set dynflags Opt_Haddock
-    let dynflags'' = dynflags' {
-        hscTarget = HscNothing,
-        ghcMode   = CompManager,
-        ghcLink   = NoLink
-      }
-    dynflags''' <- parseGhcFlags dynflags''
-    defaultCleanupHandler dynflags''' $ do
-        -- ignore the following return-value, which is a list of packages
-        -- that may need to be re-linked: Haddock doesn't do any
-        -- dynamic or static linking at all!
-        _ <- setSessionDynFlags dynflags'''
-        ghcActs dynflags'''
+withGhc libDir flags ghcActs = runGhc (Just libDir) $ do
+  dynflags  <- getSessionDynFlags
+  dynflags' <- parseGhcFlags (gopt_set dynflags Opt_Haddock) {
+    hscTarget = HscNothing,
+    ghcMode   = CompManager,
+    ghcLink   = NoLink
+    }
+  let dynflags'' = gopt_unset dynflags' Opt_SplitObjs
+  defaultCleanupHandler dynflags'' $ do
+      -- ignore the following return-value, which is a list of packages
+      -- that may need to be re-linked: Haddock doesn't do any
+      -- dynamic or static linking at all!
+      _ <- setSessionDynFlags dynflags''
+      ghcActs dynflags''
   where
     parseGhcFlags :: MonadIO m => DynFlags -> m DynFlags
     parseGhcFlags dynflags = do
@@ -444,10 +445,12 @@ getPrologue :: DynFlags -> [Flag] -> IO (Maybe (Doc RdrName))
 getPrologue dflags flags =
   case [filename | Flag_Prologue filename <- flags ] of
     [] -> return Nothing
-    [filename] -> do
-      str <- readFile filename
+    [filename] -> withFile filename ReadMode $ \h -> do
+      hSetEncoding h utf8
+      str <- hGetContents h
       case parseParasMaybe dflags str of
-        Nothing -> throwE $ "failed to parse haddock prologue from file: " ++ filename
+        Nothing ->
+          throwE $ "failed to parse haddock prologue from file: " ++ filename
         Just doc -> return (Just doc)
     _otherwise -> throwE "multiple -p/--prologue options"
 
@@ -455,11 +458,9 @@ getPrologue dflags flags =
 #ifdef IN_GHC_TREE
 
 getInTreeDir :: IO String
-getInTreeDir = do
-  m <- getExecDir
-  case m of
-    Nothing -> error "No GhcDir found"
-    Just d -> return (d </> ".." </> "lib")
+getInTreeDir = getExecDir >>= \case
+  Nothing -> error "No GhcDir found"
+  Just d -> return (d </> ".." </> "lib")
 
 
 getExecDir :: IO (Maybe String)

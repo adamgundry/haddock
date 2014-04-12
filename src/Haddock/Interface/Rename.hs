@@ -264,7 +264,7 @@ renameInstHead (className, k, types, rest) = do
   types' <- mapM renameType types
   rest' <- case rest of
     ClassInst cs -> ClassInst <$> mapM renameType cs
-    TypeInst  ts -> TypeInst  <$> renameType ts
+    TypeInst  ts -> TypeInst  <$> traverse renameType ts
     DataInst  dd -> DataInst  <$> renameTyClD dd
   return (className', k', types', rest')
 
@@ -411,6 +411,10 @@ renameSig sig = case sig of
     lreq' <- renameLContext lreq
     lprov' <- renameLContext lprov
     return $ PatSynSig lname' args' ltype' lreq' lprov'
+  FixSig (FixitySig lname fixity) -> do
+    lname' <- renameL lname
+    return $ FixSig (FixitySig lname' fixity)
+  MinimalSig s -> MinimalSig <$> traverse renameL s
   -- we have filtered out all other kinds of signatures in Interface.Create
   _ -> error "expected TypeSig"
 
@@ -475,7 +479,7 @@ renameExportItem item = case item of
   ExportGroup lev id_ doc -> do
     doc' <- renameDoc doc
     return (ExportGroup lev id_ doc')
-  ExportDecl decl doc subs instances -> do
+  ExportDecl decl doc subs instances fixities splice -> do
     decl' <- renameLDecl decl
     doc'  <- renameDocForDecl doc
     subs' <- mapM renameSub subs
@@ -483,7 +487,10 @@ renameExportItem item = case item of
       inst' <- renameInstHead inst
       idoc' <- mapM renameDoc idoc
       return (inst', idoc')
-    return (ExportDecl decl' doc' subs' instances')
+    fixities' <- forM fixities $ \(name, fixity) -> do
+      name' <- lookupRn name
+      return (name', fixity)
+    return (ExportDecl decl' doc' subs' instances' fixities' splice)
   ExportNoDecl x subs -> do
     x'    <- lookupRn x
     subs' <- mapM lookupRn subs

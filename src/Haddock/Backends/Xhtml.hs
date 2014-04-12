@@ -131,9 +131,9 @@ headHtml docTitle miniPage themes =
 
 
 srcButton :: SourceURLs -> Maybe Interface -> Maybe Html
-srcButton (Just src_base_url, _, _) Nothing =
+srcButton (Just src_base_url, _, _, _) Nothing =
   Just (anchor ! [href src_base_url] << "Source")
-srcButton (_, Just src_module_url, _) (Just iface) =
+srcButton (_, Just src_module_url, _, _) (Just iface) =
   let url = spliceURL (Just $ ifaceOrigFilename iface)
                       (Just $ ifaceMod iface) Nothing Nothing src_module_url
    in Just (anchor ! [href url] << "Source")
@@ -534,7 +534,7 @@ ifaceToHtml maybe_source_url maybe_wiki_url iface unicode qual
 
     -- todo: if something has only sub-docs, or fn-args-docs, should
     -- it be measured here and thus prevent omitting the synopsis?
-    has_doc (ExportDecl _ (Documentation mDoc mWarning, _) _ _) = isJust mDoc || isJust mWarning
+    has_doc ExportDecl { expItemMbDoc = (Documentation mDoc mWarning, _) } = isJust mDoc || isJust mWarning
     has_doc (ExportNoDecl _ _) = False
     has_doc (ExportModule _) = False
     has_doc _ = True
@@ -579,7 +579,7 @@ miniSynopsis mdl iface unicode qual =
 
 processForMiniSynopsis :: Module -> Bool -> Qualification -> ExportItem DocName
                        -> [Html]
-processForMiniSynopsis mdl unicode qual (ExportDecl (L _loc decl0) _doc _ _insts) =
+processForMiniSynopsis mdl unicode qual ExportDecl { expItemDecl = L _loc decl0 } =
   ((divTopDecl <<).(declElem <<)) <$> case decl0 of
     TyClD d -> let b = ppTyClBinderWithVarsMini mdl d in case d of
         (FamDecl decl)    -> [ppTyFamHeader True False decl unicode qual]
@@ -626,14 +626,14 @@ ppModuleContents qual exports
     | lev <= n  = ( [], items )
     | otherwise = ( html:secs, rest2 )
     where
-        html = linkedAnchor (groupId id0) << docToHtml qual doc +++ mk_subsections ssecs
+        html = linkedAnchor (groupId id0)
+               << docToHtmlNoAnchors qual doc +++ mk_subsections ssecs
         (ssecs, rest1) = process lev rest
         (secs,  rest2) = process n   rest1
   process n (_ : rest) = process n rest
 
   mk_subsections [] = noHtml
   mk_subsections ss = unordList ss
-
 
 -- we need to assign a unique id to each section heading so we can hyperlink
 -- them from the contents:
@@ -649,16 +649,17 @@ numberSectionHeadings = go 1
 
 processExport :: Bool -> LinksInfo -> Bool -> Qualification
               -> ExportItem DocName -> Maybe Html
-processExport _ _ _ _ (ExportDecl (L _ (InstD _)) _ _ _) = Nothing -- Hide empty instances
+processExport _ _ _ _ ExportDecl { expItemDecl = L _ (InstD _) } = Nothing -- Hide empty instances
 processExport summary _ _ qual (ExportGroup lev id0 doc)
   = nothingIf summary $ groupHeading lev id0 << docToHtml qual doc
-processExport summary links unicode qual (ExportDecl decl doc subdocs insts)
-  = processDecl summary $ ppDecl summary links decl doc insts subdocs unicode qual
+processExport summary links unicode qual (ExportDecl decl doc subdocs insts fixities splice)
+  = processDecl summary $ ppDecl summary links decl doc insts fixities subdocs splice unicode qual
 processExport summary _ _ qual (ExportNoDecl y [])
-  = processDeclOneLiner summary $ ppDocName qual Prefix y
+  = processDeclOneLiner summary $ ppDocName qual Prefix True y
 processExport summary _ _ qual (ExportNoDecl y subs)
   = processDeclOneLiner summary $
-      ppDocName qual Prefix y +++ parenList (map (ppDocName qual Prefix) subs)
+      ppDocName qual Prefix True y
+      +++ parenList (map (ppDocName qual Prefix True) subs)
 processExport summary _ _ qual (ExportDoc doc)
   = nothingIf summary $ docSection_ qual doc
 processExport summary _ _ _ (ExportModule mdl)
